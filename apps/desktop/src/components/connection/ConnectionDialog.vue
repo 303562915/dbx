@@ -10808,7 +10808,7 @@ function openExternalUrl(url: string) {
                         <SelectTrigger class="col-span-3"><SelectValue /></SelectTrigger>
                         <SelectContent>
                           <SelectItem value="dbx_tcp">{{ t("connection.httpTunnelProtocolDbx") }}</SelectItem>
-                          <SelectItem v-if="connection.db_type === 'mysql'" value="navicat_mysql">{{ t("connection.httpTunnelProtocolNavicat") }}</SelectItem>
+                          <SelectItem v-if="form.db_type === 'mysql'" value="navicat_mysql">{{ t("connection.httpTunnelProtocolNavicat") }}</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
