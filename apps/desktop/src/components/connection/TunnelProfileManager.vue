@@ -336,10 +336,21 @@ async function testSelected() {
 
       <template v-else-if="selectedHttp">
         <div class="grid grid-cols-4 items-center gap-4">
-          <Label class="text-xs">{{ t("connection.httpTunnelUrl") }}</Label>
-          <Input v-model="selectedHttp!.url" class="col-span-3" placeholder="https://dbx.example.com/dbx_tunnel.php" />
+          <Label class="text-xs">{{ t("connection.httpTunnelProtocol") }}</Label>
+          <Select v-model="selectedHttp!.protocol">
+            <SelectTrigger class="col-span-3"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="dbx_tcp">{{ t("connection.httpTunnelProtocolDbx") }}</SelectItem>
+              <SelectItem value="navicat_mysql">{{ t("connection.httpTunnelProtocolNavicat") }}</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div class="grid grid-cols-4 items-center gap-4">
+          <Label class="text-xs">{{ t("connection.httpTunnelUrl") }}</Label>
+          <Input v-model="selectedHttp!.url" class="col-span-3" :placeholder="selectedHttp!.protocol === 'navicat_mysql' ? 'https://example.com/ntunnel_mysql.php' : 'https://dbx.example.com/dbx_tunnel.php'" />
+        </div>
+        <p v-if="selectedHttp!.protocol === 'navicat_mysql'" class="col-span-4 text-xs text-muted-foreground">{{ t("connection.httpTunnelNavicatHint") }}</p>
+        <div v-if="selectedHttp!.protocol !== 'navicat_mysql'" class="grid grid-cols-4 items-center gap-4">
           <Label class="text-xs">{{ t("connection.httpTunnelToken") }}</Label>
           <PasswordInput v-model="selectedHttp!.token" class="col-span-3" :placeholder="t('connection.httpTunnelTokenPlaceholder')" />
         </div>

@@ -3685,8 +3685,42 @@ impl AppState {
         config: &ConnectionConfig,
     ) -> Result<ConnectionEndpoint, String> {
         let transport_layers = self.resolved_transport_layers(config).await?;
+        let navicat_layer = transport_layers.iter().enumerate().find_map(|(index, layer)| match layer {
+            TransportLayerConfig::HttpTunnel(http)
+                if http.protocol == crate::models::connection::HttpTunnelProtocol::NavicatMysql => Some(index),
+            _ => None,
+        });
+        if let Some(index) = navicat_layer {
+            if config.db_type != DatabaseType::Mysql {
+                return Err("Navicat HTTP tunnel protocol is only supported for MySQL connections.".to_string());
+            }
+            if index != 0 || transport_layers.len() != 1 {
+                return Err("Navicat MySQL HTTP tunnel must be the only transport layer.".to_string());
+            }
+            if config.ssl || !config.ca_cert_path.is_empty() || !config.client_cert_path.is_empty() || !config.client_key_path.is_empty() {
+                return Err("Navicat MySQL HTTP tunnel does not support MySQL TLS settings. Disable MySQL SSL or remove the TLS certificate paths.".to_string());
+            }
+        }
         if transport_layers.is_empty() || db::sqlite_worker::sqlite_remote_worker_requested(config) {
             return Ok(ConnectionEndpoint::direct(config.host.clone(), config.port));
+        }
+        if let Some(TransportLayerConfig::HttpTunnel(http)) = transport_layers.first() {
+            if http.protocol == crate::models::connection::HttpTunnelProtocol::NavicatMysql {
+                let local_port = self
+                    .http_tunnels
+                    .start_navicat_mysql_tunnel(
+                        connection_id,
+                        &http.url,
+                        http.connect_timeout_secs,
+                        &config.host,
+                        config.port,
+                        &config.username,
+                        &config.password,
+                        config.database.as_deref(),
+                    )
+                    .await?;
+                return Ok(ConnectionEndpoint::direct("127.0.0.1".to_string(), local_port));
+            }
         }
         if config.db_type == DatabaseType::ClickHouse {
             if let Some(proxy) = self.clickhouse_proxy_for_transport_layers(connection_id, &transport_layers).await? {
@@ -11820,6 +11854,7 @@ for line in sys.stdin:
             enabled: true,
             url: String::new(),
             token: String::new(),
+            protocol: crate::models::connection::HttpTunnelProtocol::DbxTcp,
             connect_timeout_secs: 10,
             profile_id: profile_id.to_string(),
         }

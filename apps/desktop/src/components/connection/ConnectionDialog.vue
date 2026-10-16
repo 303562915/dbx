@@ -580,6 +580,7 @@ function defaultHttpTunnel(): HttpTunnelConfig {
     enabled: true,
     url: "",
     token: "",
+    protocol: "dbx_tcp",
     connect_timeout_secs: 10,
   };
 }
@@ -605,6 +606,7 @@ function normalizeHttpTunnel(layer: Partial<HttpTunnelConfig>): HttpTunnelConfig
     enabled: layer.enabled !== false,
     url: layer.url || "",
     token: layer.token || "",
+    protocol: layer.protocol || "dbx_tcp",
     connect_timeout_secs: Number(layer.connect_timeout_secs) || 10,
     profile_id: layer.profile_id || undefined,
   };
@@ -10801,10 +10803,21 @@ function openExternalUrl(url: string) {
                   </template>
                   <template v-else-if="selectedHttpTunnelLayer && !selectedLayerProfileId">
                     <div class="grid grid-cols-4 items-center gap-4">
-                      <Label :class="connectionLabelSmallClass">{{ t("connection.httpTunnelUrl") }}</Label>
-                      <Input v-model="selectedHttpTunnelLayer!.url" class="col-span-3" placeholder="https://dbx.example.com/dbx_tunnel.php" :disabled="selectedHttpTunnelLayer!.enabled === false" />
+                      <Label :class="connectionLabelSmallClass">{{ t("connection.httpTunnelProtocol") }}</Label>
+                      <Select v-model="selectedHttpTunnelLayer!.protocol" :disabled="selectedHttpTunnelLayer!.enabled === false">
+                        <SelectTrigger class="col-span-3"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="dbx_tcp">{{ t("connection.httpTunnelProtocolDbx") }}</SelectItem>
+                          <SelectItem v-if="connection.db_type === 'mysql'" value="navicat_mysql">{{ t("connection.httpTunnelProtocolNavicat") }}</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div class="grid grid-cols-4 items-center gap-4">
+                      <Label :class="connectionLabelSmallClass">{{ t("connection.httpTunnelUrl") }}</Label>
+                      <Input v-model="selectedHttpTunnelLayer!.url" class="col-span-3" :placeholder="selectedHttpTunnelLayer!.protocol === 'navicat_mysql' ? 'https://example.com/ntunnel_mysql.php' : 'https://dbx.example.com/dbx_tunnel.php'" :disabled="selectedHttpTunnelLayer!.enabled === false" />
+                    </div>
+                    <p v-if="selectedHttpTunnelLayer!.protocol === 'navicat_mysql'" class="col-span-4 text-xs text-muted-foreground">{{ t("connection.httpTunnelNavicatHint") }}</p>
+                    <div v-if="selectedHttpTunnelLayer!.protocol !== 'navicat_mysql'" class="grid grid-cols-4 items-center gap-4">
                       <Label :class="connectionLabelSmallClass">{{ t("connection.httpTunnelToken") }}</Label>
                       <PasswordInput v-model="selectedHttpTunnelLayer!.token" class="col-span-3" :placeholder="t('connection.httpTunnelTokenPlaceholder')" :disabled="selectedHttpTunnelLayer!.enabled === false" />
                     </div>
