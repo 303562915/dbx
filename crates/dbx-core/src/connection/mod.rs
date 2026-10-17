@@ -3685,6 +3685,28 @@ impl AppState {
         config: &ConnectionConfig,
     ) -> Result<ConnectionEndpoint, String> {
         let transport_layers = self.resolved_transport_layers(config).await?;
+        let transport_summary = transport_layers
+            .iter()
+            .map(|layer| match layer {
+                TransportLayerConfig::Ssh(_) => "ssh".to_string(),
+                TransportLayerConfig::Proxy(_) => "proxy".to_string(),
+                TransportLayerConfig::HttpTunnel(http) => format!(
+                    "http_tunnel:{:?}:{}",
+                    http.protocol,
+                    redact_transport_url(&http.url)
+                ),
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        log::info!(
+            "[transport] connection_id={} db_type={:?} layer_count={} layers=[{}] target={}:{}",
+            connection_id,
+            config.db_type,
+            transport_layers.len(),
+            transport_summary,
+            config.host,
+            config.port
+        );
         let navicat_layer = transport_layers.iter().enumerate().find_map(|(index, layer)| match layer {
             TransportLayerConfig::HttpTunnel(http)
                 if http.protocol == crate::models::connection::HttpTunnelProtocol::NavicatMysql => Some(index),
@@ -6368,6 +6390,16 @@ impl AppState {
         let configs = self.configs.read().await;
         configs.get(connection_id).is_some_and(|config| config.has_effective_transport_layers())
     }
+}
+
+fn redact_transport_url(raw: &str) -> String {
+    reqwest::Url::parse(raw)
+        .map(|mut url| {
+            url.set_query(None);
+            url.set_fragment(None);
+            url.to_string()
+        })
+        .unwrap_or_else(|_| raw.trim().to_string())
 }
 
 fn gaussdb_identifier_quote_from_query_result(result: &db::QueryResult) -> Option<String> {

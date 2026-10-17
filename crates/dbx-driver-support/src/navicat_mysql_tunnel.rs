@@ -34,10 +34,27 @@ impl NavicatMysqlEndpoint {
         database: Option<&str>,
         request_timeout_secs: u64,
     ) -> Result<Self, String> {
-        let url = Url::parse(url.trim()).map_err(|error| format!("Invalid Navicat tunnel URL: {error}"))?;
+        let mut url = Url::parse(url.trim()).map_err(|error| format!("Invalid Navicat tunnel URL: {error}"))?;
         match url.scheme() {
-            "http" | "https" => {}
+            "https" => {}
+            "http" => {
+                // Navicat PHP tunnels are commonly installed behind an HTTP
+                // to HTTPS redirect.  reqwest follows a 301 by changing the
+                // POST into a GET, which makes the PHP script return its HTML
+                // test page instead of the binary tunnel packet.  Upgrade the
+                // endpoint before sending the first request so the POST body
+                // reaches the tunnel unchanged.
+                url.set_scheme("https")
+                    .map_err(|_| "Failed to upgrade Navicat tunnel URL to HTTPS".to_string())?;
+                log::info!("[navicat-http] upgraded HTTP tunnel URL to HTTPS: {}", url);
+            }
             other => return Err(format!("Unsupported Navicat tunnel URL scheme: {other}")),
+        }
+        if !url.path().to_ascii_lowercase().ends_with(".php") {
+            return Err(
+                "Navicat tunnel URL must point to the PHP tunnel script, for example https://example.com/ntunnel_mysql.php"
+                    .to_string(),
+            );
         }
         if host.trim().is_empty() || port == 0 {
             return Err("Navicat tunnel requires a MySQL target host and port".to_string());
@@ -71,11 +88,15 @@ impl NavicatMysqlEndpoint {
             ("q[]", encoded_query),
         ];
         log::debug!("[navicat-http] POST tunnel request target={}:{} db={} sql_bytes={} timeout_secs={}", self.host, self.port, if database.is_empty() { "<none>" } else { "<set>" }, sql.len(), self.request_timeout.as_secs());
-        let (status, body) = timeout(self.request_timeout, async {
+        let (status, response_url, content_type, body) = timeout(self.request_timeout, async {
             let response = self.client.post(self.url.clone()).form(&fields).send().await?;
             let status = response.status();
+            let mut response_url = response.url().clone();
+            response_url.set_query(None);
+            response_url.set_fragment(None);
+            let content_type = response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|value| value.to_str().ok()).map(str::to_string);
             let body = response.bytes().await?;
-            Ok::<_, reqwest::Error>((status, body))
+            Ok::<_, reqwest::Error>((status, response_url, content_type, body))
         })
         .await
         .map_err(|_| {
@@ -86,10 +107,27 @@ impl NavicatMysqlEndpoint {
             log::warn!("[navicat-http] request transport error after {:?} target={}:{}: {error}", started.elapsed(), self.host, self.port);
             format!("Navicat HTTP tunnel request failed: {error}")
         })?;
-        log::debug!("[navicat-http] response status={} bytes={} elapsed={:?}", status, body.len(), started.elapsed());
+        log::debug!("[navicat-http] response status={} content_type={:?} final_url={} bytes={} elapsed={:?}", status, content_type, response_url, body.len(), started.elapsed());
         if !status.is_success() {
             let text = String::from_utf8_lossy(&body);
             return Err(format!("Navicat HTTP tunnel returned HTTP {status}: {}", text.trim()));
+        }
+        if body.len() < 16 || u32::from_be_bytes(body[0..4].try_into().unwrap()) != 1111 || u16::from_be_bytes(body[4..6].try_into().unwrap()) != 204 {
+            let header_bytes = body.iter().take(16).map(|byte| format!("{byte:02x}")).collect::<Vec<_>>().join(" ");
+            let preview = String::from_utf8_lossy(body.get(..body.len().min(120)).unwrap_or_default())
+                .chars()
+                .map(|ch| if ch.is_control() { ' ' } else { ch })
+                .collect::<String>();
+            let message = format!(
+                "Invalid Navicat HTTP tunnel response: HTTP {status}, content-type={}, final_url={}, bytes={}, header=[{}], preview={:?}",
+                content_type.as_deref().unwrap_or("<missing>"),
+                response_url,
+                body.len(),
+                header_bytes,
+                preview.trim()
+            );
+            log::warn!("[navicat-http] {message}");
+            return Err(message);
         }
         Ok(body.to_vec())
     }
