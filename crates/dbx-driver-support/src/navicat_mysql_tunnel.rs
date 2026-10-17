@@ -111,19 +111,7 @@ async fn serve_client(mut stream: TcpStream, endpoint: Arc<NavicatMysqlEndpoint>
     let mut auth_seed = [0; 20];
     auth_seed[..16].copy_from_slice(seed_a.as_bytes());
     auth_seed[16..].copy_from_slice(&seed_b.as_bytes()[..4]);
-    let mut greeting = vec![10];
-    greeting.extend_from_slice(b"8.0.0-dbx-navicat\0");
-    greeting.extend_from_slice(&auth_seed[..8]);
-    greeting.push(0);
-    greeting.extend_from_slice(&(SERVER_CAPABILITIES as u16).to_le_bytes());
-    greeting.push(45);
-    greeting.extend_from_slice(&2u16.to_le_bytes());
-    greeting.extend_from_slice(&((SERVER_CAPABILITIES >> 16) as u16).to_le_bytes());
-    greeting.push(21);
-    greeting.extend_from_slice(&[0; 10]);
-    greeting.extend_from_slice(&auth_seed[8..]);
-    greeting.push(0);
-    greeting.extend_from_slice(b"mysql_native_password\0");
+    let greeting = mysql_handshake_greeting(&auth_seed);
     write_packet(&mut stream, 0, &greeting).await?;
 
     let (_, handshake) = read_packet(&mut stream).await?;
@@ -172,6 +160,28 @@ async fn serve_client(mut stream: TcpStream, endpoint: Arc<NavicatMysqlEndpoint>
             _ => send_mysql_error(&mut stream, 1, 1047, "Unsupported command for Navicat HTTP tunnel").await?,
         }
     }
+}
+
+fn mysql_handshake_greeting(auth_seed: &[u8; 20]) -> Vec<u8> {
+    let mut greeting = vec![10];
+    greeting.extend_from_slice(b"8.0.0-dbx-navicat\0");
+    // MySQL's handshake places a 4-byte connection id before the first
+    // eight bytes of the authentication seed.  Omitting it shifts every
+    // following field and makes clients wait for a handshake that never
+    // arrives.
+    greeting.extend_from_slice(&1u32.to_le_bytes());
+    greeting.extend_from_slice(&auth_seed[..8]);
+    greeting.push(0); // auth-plugin-data-part-1 terminator
+    greeting.extend_from_slice(&(SERVER_CAPABILITIES as u16).to_le_bytes());
+    greeting.push(45);
+    greeting.extend_from_slice(&2u16.to_le_bytes());
+    greeting.extend_from_slice(&((SERVER_CAPABILITIES >> 16) as u16).to_le_bytes());
+    greeting.push(21);
+    greeting.extend_from_slice(&[0; 10]);
+    greeting.extend_from_slice(&auth_seed[8..]);
+    greeting.push(0);
+    greeting.extend_from_slice(b"mysql_native_password\0");
+    greeting
 }
 
 #[derive(Debug, PartialEq, Eq)]
