@@ -10599,7 +10599,7 @@ function openExternalUrl(url: string) {
             </TabsContent>
 
             <TabsContent v-if="canUseTransportLayers" value="transport" class="m-0 flex min-h-0 flex-1 flex-col overflow-hidden">
-              <div class="connection-form-body grid min-h-0 w-full flex-1 scroll-pb-6 gap-4 overflow-y-auto overflow-x-hidden pt-4 pr-2 pb-6">
+              <div class="connection-form-body connection-transport-form-body grid min-h-0 w-full flex-1 scroll-pb-6 gap-4 overflow-y-auto overflow-x-hidden pt-4 pr-2 pb-6">
                 <div class="connection-label-wide-grid grid w-full min-w-0 grid-cols-4 items-start gap-4">
                   <Label :class="connectionLabelSmallPaddedClass">{{ t("connection.sshHops") }}</Label>
                   <div class="col-span-3 grid w-full min-w-0 gap-3">
@@ -11309,6 +11309,34 @@ function openExternalUrl(url: string) {
   /* Authentication fields are conditional. Keep every Nacos card at its
    * max-content height when they appear, and scroll the form as a whole. */
   grid-auto-rows: max-content;
+}
+
+/* The transport editor contains nested four-column rows. Keep the outer
+ * scrolling container strictly vertical so legacy WebViews cannot auto-place
+ * the rows beside each other when a tunnel protocol changes its fields. */
+.connection-transport-form-body {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  align-content: stretch !important;
+}
+
+.connection-transport-form-body > .connection-label-wide-grid,
+.connection-transport-form-body > .grid {
+  width: 100% !important;
+  min-width: 0 !important;
+  flex: 0 0 auto !important;
+}
+
+.connection-transport-form-body > .grid.grid-cols-4,
+.connection-transport-form-body > .connection-label-wide-grid.grid-cols-4 {
+  grid-template-columns: minmax(7rem, 0.8fr) repeat(3, minmax(0, 1fr)) !important;
+}
+
+.connection-transport-form-body > .grid.grid-cols-4 > .col-span-3,
+.connection-transport-form-body > .connection-label-wide-grid.grid-cols-4 > .col-span-3 {
+  grid-column: 2 / -1 !important;
+  min-width: 0 !important;
 }
 
 @media (max-height: 720px) {
