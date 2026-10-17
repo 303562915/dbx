@@ -58,6 +58,7 @@ impl NavicatMysqlEndpoint {
     }
 
     async fn query(&self, database: &str, sql: &str) -> Result<Vec<u8>, String> {
+        let started = std::time::Instant::now();
         let encoded_query = base64::engine::general_purpose::STANDARD.encode(sql.as_bytes());
         let fields = [
             ("actn", "Q".to_string()),
@@ -69,6 +70,7 @@ impl NavicatMysqlEndpoint {
             ("encodeBase64", "1".to_string()),
             ("q[]", encoded_query),
         ];
+        log::debug!("[navicat-http] POST tunnel request target={}:{} db={} sql_bytes={} timeout_secs={}", self.host, self.port, if database.is_empty() { "<none>" } else { "<set>" }, sql.len(), self.request_timeout.as_secs());
         let (status, body) = timeout(self.request_timeout, async {
             let response = self.client.post(self.url.clone()).form(&fields).send().await?;
             let status = response.status();
@@ -76,8 +78,15 @@ impl NavicatMysqlEndpoint {
             Ok::<_, reqwest::Error>((status, body))
         })
         .await
-        .map_err(|_| "Navicat HTTP tunnel request timed out".to_string())?
-        .map_err(|error| format!("Navicat HTTP tunnel request failed: {error}"))?;
+        .map_err(|_| {
+            log::warn!("[navicat-http] request timed out after {:?} target={}:{}", started.elapsed(), self.host, self.port);
+            "Navicat HTTP tunnel request timed out".to_string()
+        })?
+        .map_err(|error| {
+            log::warn!("[navicat-http] request transport error after {:?} target={}:{}: {error}", started.elapsed(), self.host, self.port);
+            format!("Navicat HTTP tunnel request failed: {error}")
+        })?;
+        log::debug!("[navicat-http] response status={} bytes={} elapsed={:?}", status, body.len(), started.elapsed());
         if !status.is_success() {
             let text = String::from_utf8_lossy(&body);
             return Err(format!("Navicat HTTP tunnel returned HTTP {status}: {}", text.trim()));
@@ -93,9 +102,14 @@ pub async fn serve(listener: TcpListener, endpoint: NavicatMysqlEndpoint) {
         tokio::select! {
             accepted = listener.accept() => match accepted {
                 Ok((stream, _)) => {
+                    let peer = stream.peer_addr().ok();
                     let endpoint = endpoint.clone();
                     clients.spawn(async move {
-                        let _ = serve_client(stream, endpoint).await;
+                        let mut stream = stream;
+                        if let Err(error) = serve_client(&mut stream, endpoint).await {
+                            log::warn!("[navicat-mysql] local client session failed peer={peer:?}: {error}");
+                            let _ = send_mysql_error(&mut stream, 1, 1105, &error).await;
+                        }
                     });
                 }
                 Err(_) => break,
@@ -105,7 +119,8 @@ pub async fn serve(listener: TcpListener, endpoint: NavicatMysqlEndpoint) {
     }
 }
 
-async fn serve_client(mut stream: TcpStream, endpoint: Arc<NavicatMysqlEndpoint>) -> Result<(), String> {
+async fn serve_client(mut stream: &mut TcpStream, endpoint: Arc<NavicatMysqlEndpoint>) -> Result<(), String> {
+    let peer = stream.peer_addr().ok();
     let seed_a = uuid::Uuid::new_v4();
     let seed_b = uuid::Uuid::new_v4();
     let mut auth_seed = [0; 20];
@@ -113,27 +128,37 @@ async fn serve_client(mut stream: TcpStream, endpoint: Arc<NavicatMysqlEndpoint>
     auth_seed[16..].copy_from_slice(&seed_b.as_bytes()[..4]);
     let greeting = mysql_handshake_greeting(&auth_seed);
     write_packet(&mut stream, 0, &greeting).await?;
+    log::debug!("[navicat-mysql] sent protocol greeting peer={peer:?} bytes={}", greeting.len());
 
-    let (_, handshake) = read_packet(&mut stream).await?;
+    let (sequence, handshake) = read_packet(&mut stream).await.map_err(|error| {
+        log::warn!("[navicat-mysql] failed waiting for client handshake peer={peer:?}: {error}");
+        error
+    })?;
+    log::debug!("[navicat-mysql] received client handshake peer={peer:?} sequence={sequence} bytes={} capabilities=0x{:08x}", handshake.len(), handshake.get(..4).and_then(|bytes| <[u8; 4]>::try_from(bytes).ok()).map(u32::from_le_bytes).unwrap_or(0));
     if handshake.len() < 32 {
         return Err("Invalid MySQL handshake response".to_string());
     }
     let client_capabilities = u32::from_le_bytes(handshake[0..4].try_into().unwrap());
     if client_capabilities & CLIENT_PROTOCOL_41 == 0 {
-        return send_mysql_error(&mut stream, 2, 1043, "MySQL protocol 4.1 is required").await;
+        return send_mysql_error(&mut stream, sequence.wrapping_add(1), 1043, "MySQL protocol 4.1 is required").await;
     }
-    write_packet(&mut stream, 2, &mysql_ok_packet(0, 0, "")).await?;
+    write_packet(&mut stream, sequence.wrapping_add(1), &mysql_ok_packet(0, 0, "")).await?;
+    log::debug!("[navicat-mysql] authenticated local client peer={peer:?}");
 
     let mut database = endpoint.database.clone();
     loop {
         let (sequence, packet) = match read_packet(&mut stream).await {
             Ok(packet) => packet,
             Err(error) if error == "MySQL client disconnected" => return Ok(()),
-            Err(error) => return Err(error),
+            Err(error) => {
+                log::warn!("[navicat-mysql] failed reading client command peer={peer:?}: {error}");
+                return Err(error);
+            }
         };
         let Some((&command, payload)) = packet.split_first() else {
             continue;
         };
+        log::debug!("[navicat-mysql] received command peer={peer:?} command=0x{command:02x} sequence={sequence} payload_bytes={}", payload.len());
         match command {
             0x01 => return Ok(()),
             0x0e => write_packet(&mut stream, sequence.wrapping_add(1), &mysql_ok_packet(0, 0, "")).await?,
@@ -145,19 +170,19 @@ async fn serve_client(mut stream: TcpStream, endpoint: Arc<NavicatMysqlEndpoint>
                 let sql = String::from_utf8_lossy(payload).to_string();
                 if let Some(next_database) = parse_use_database(&sql) {
                     database = next_database;
-                    write_packet(&mut stream, 1, &mysql_ok_packet(0, 0, "")).await?;
+                    write_packet(&mut stream, sequence.wrapping_add(1), &mysql_ok_packet(0, 0, "")).await?;
                     continue;
                 }
                 match endpoint.query(&database, &sql).await.and_then(|body| parse_navicat_response(&body)) {
                     Ok(result) => write_query_result(&mut stream, result).await?,
-                    Err(error) => send_mysql_error(&mut stream, 1, 1105, &error).await?,
+                    Err(error) => send_mysql_error(&mut stream, sequence.wrapping_add(1), 1105, &error).await?,
                 }
             }
             0x16 => {
-                send_mysql_error(&mut stream, 1, 1295, "Prepared statements are not supported by Navicat HTTP tunnels")
+                send_mysql_error(&mut stream, sequence.wrapping_add(1), 1295, "Prepared statements are not supported by Navicat HTTP tunnels")
                     .await?
             }
-            _ => send_mysql_error(&mut stream, 1, 1047, "Unsupported command for Navicat HTTP tunnel").await?,
+            _ => send_mysql_error(&mut stream, sequence.wrapping_add(1), 1047, "Unsupported command for Navicat HTTP tunnel").await?,
         }
     }
 }
@@ -225,7 +250,9 @@ fn parse_navicat_response(data: &[u8]) -> Result<NavicatResult, String> {
     if cursor == data.len() {
         return Ok(result);
     }
-    if data.len() - cursor < 28 {
+    // Navicat's result-set header has five 4-byte integers followed by
+    // twelve reserved bytes: 32 bytes total.
+    if data.len() - cursor < 32 {
         return Err("Truncated Navicat query result header".to_string());
     }
     let query_error = u32::from_be_bytes(data[cursor..cursor + 4].try_into().unwrap());
@@ -233,7 +260,7 @@ fn parse_navicat_response(data: &[u8]) -> Result<NavicatResult, String> {
     result.last_insert_id = u32::from_be_bytes(data[cursor + 8..cursor + 12].try_into().unwrap()) as u64;
     let column_count = u32::from_be_bytes(data[cursor + 12..cursor + 16].try_into().unwrap()) as usize;
     let row_count = u32::from_be_bytes(data[cursor + 16..cursor + 20].try_into().unwrap()) as usize;
-    cursor += 28;
+    cursor += 32;
     if query_error != 0 {
         let message = read_navicat_block(data, &mut cursor)?;
         return Err(format!("MySQL query error {query_error}: {}", String::from_utf8_lossy(&message)));
