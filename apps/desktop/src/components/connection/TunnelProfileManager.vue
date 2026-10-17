@@ -265,20 +265,22 @@ async function testSelected() {
           <Label class="text-xs">{{ t("connection.sshUser") }}</Label>
           <Input v-model="selectedSsh.user" class="col-span-3" placeholder="root" />
         </div>
-        <div class="grid grid-cols-4 items-center gap-4">
+        <div class="grid min-w-0 grid-cols-4 items-center gap-4">
           <Label class="text-xs">{{ t("connection.sshAuthMethod") }}</Label>
-          <Select :model-value="selectedSsh.auth_method || 'password'" @update:model-value="updateSshAuthMethod">
-            <SelectTrigger class="col-span-3 h-9">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="password">{{ t("connection.sshAuthMethodPassword") }}</SelectItem>
-              <SelectItem value="key">{{ t("connection.sshAuthMethodKey") }}</SelectItem>
-              <SelectItem value="key+password">{{ t("connection.sshAuthMethodKeyPassword") }}</SelectItem>
-              <SelectItem value="agent">{{ t("connection.sshUseAgent") }}</SelectItem>
-              <SelectItem value="none">{{ t("connection.sshAuthMethodNone") }}</SelectItem>
-            </SelectContent>
-          </Select>
+          <div class="col-span-3 min-w-0">
+            <Select :model-value="selectedSsh.auth_method || 'password'" @update:model-value="updateSshAuthMethod">
+              <SelectTrigger class="h-9 w-full min-w-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="password">{{ t("connection.sshAuthMethodPassword") }}</SelectItem>
+                <SelectItem value="key">{{ t("connection.sshAuthMethodKey") }}</SelectItem>
+                <SelectItem value="key+password">{{ t("connection.sshAuthMethodKeyPassword") }}</SelectItem>
+                <SelectItem value="agent">{{ t("connection.sshUseAgent") }}</SelectItem>
+                <SelectItem value="none">{{ t("connection.sshAuthMethodNone") }}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
         <div v-if="!selectedSsh.auth_method || selectedSsh.auth_method === 'password' || selectedSsh.auth_method === 'key+password'" class="grid grid-cols-4 items-center gap-4">
           <Label class="text-xs">{{ t("connection.sshPassword") }}</Label>
@@ -324,17 +326,19 @@ async function testSelected() {
       </template>
 
       <template v-else-if="selectedProxy">
-        <div class="grid grid-cols-4 items-center gap-4">
+        <div class="grid min-w-0 grid-cols-4 items-center gap-4">
           <Label class="text-xs">{{ t("connection.proxyType") }}</Label>
-          <Select :model-value="selectedProxy.proxy_type || 'socks5'" @update:model-value="updateProxyType">
-            <SelectTrigger class="col-span-3 h-9">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="socks5">SOCKS5</SelectItem>
-              <SelectItem value="http">HTTP CONNECT</SelectItem>
-            </SelectContent>
-          </Select>
+          <div class="col-span-3 min-w-0">
+            <Select :model-value="selectedProxy.proxy_type || 'socks5'" @update:model-value="updateProxyType">
+              <SelectTrigger class="h-9 w-full min-w-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="socks5">SOCKS5</SelectItem>
+                <SelectItem value="http">HTTP CONNECT</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
         <div class="grid grid-cols-4 items-center gap-4">
           <Label class="text-xs">{{ t("connection.proxyHost") }}</Label>
