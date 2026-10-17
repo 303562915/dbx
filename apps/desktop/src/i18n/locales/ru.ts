@@ -1824,6 +1824,7 @@ export default withEnglishFallback({
     httpTunnelProtocolDbx: "Скрипт DBX TCP",
     httpTunnelProtocolNavicat: "Navicat MySQL HTTP",
     httpTunnelNavicatHint: "Поддерживается только MySQL; поддерживаются адреса HTTP/HTTPS, рекомендуется использовать HTTPS. Нельзя одновременно включать MySQL SSL или другой туннель.",
+    httpTunnelNavicatNoToken: "Протокол Navicat не использует токен",
   },
   editor: {
     duckdbDraining: "Предыдущий запрос DuckDB ещё завершается. Повторите попытку чуть позже.",

@@ -1844,6 +1844,7 @@ export default withEnglishFallback({
     httpTunnelProtocolDbx: "DBX TCP スクリプト",
     httpTunnelProtocolNavicat: "Navicat MySQL HTTP",
     httpTunnelNavicatHint: "MySQL のみ対応；HTTP/HTTPS アドレスをサポートし、HTTPS の使用を推奨します。MySQL SSL または他のトンネルと同時に有効にできません。",
+    httpTunnelNavicatNoToken: "Navicat プロトコルでは Token を使用しません",
   },
   editor: {
     duckdbDraining: "前回の DuckDB クエリはまだ停止処理中です。しばらくしてから再試行してください。",
