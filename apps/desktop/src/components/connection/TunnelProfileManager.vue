@@ -381,6 +381,9 @@ async function testSelected() {
         <div v-if="selectedHttp!.protocol === 'navicat_mysql'" class="col-span-4 min-w-0 text-xs text-muted-foreground">
           {{ t("connection.httpTunnelNavicatHint") }}
         </div>
+        <div v-if="selectedHttp!.protocol === 'navicat_mysql'" class="col-span-4 min-w-0 text-xs">
+          <a class="text-primary underline underline-offset-2" href="https://help.navicat.com/hc/en-us/articles/218283457-Where-can-I-get-the-HTTP-tunnel-script-file" target="_blank" rel="noopener noreferrer">{{ t("connection.httpTunnelNavicatScriptHelp") }}</a>
+        </div>
         <div v-if="selectedHttp!.protocol !== 'navicat_mysql'" class="grid min-w-0 grid-cols-4 items-center gap-4">
           <Label class="text-xs">{{ t("connection.httpTunnelToken") }}</Label>
           <div class="col-span-3 min-w-0">
