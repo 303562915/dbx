@@ -1,7 +1,7 @@
 # Navicat MySQL HTTP Tunnel
 
 DBX supports Navicat's MySQL HTTP tunnel protocol. A compatibility copy of
-PremiumSoft's `ntunnel_mysql.php` is in `deploy/navicat/dbx_tunnel.php`.
+PremiumSoft's `ntunnel_mysql.php` is in `deploy/ntunnel_mysql.php`.
 Navicat documents that its original script is supplied in its installation
 folder/package on Windows and can be exported from the HTTP tab on macOS and
 Linux:
@@ -16,8 +16,8 @@ grant rights to the PremiumSoft code.
 The separate `deploy/dbx_tunnel.php` file is DBX's own tunnel and is not a
 Navicat-compatible endpoint.
 
-Upload `deploy/navicat/dbx_tunnel.php` to the PHP host and configure DBX with
-its full URL, such as `https://db.example.com/dbx_tunnel.php`. Plain HTTP is accepted for trusted
+Upload `deploy/ntunnel_mysql.php` to the PHP host and configure DBX with its
+full URL, such as `https://db.example.com/ntunnel_mysql.php`. Plain HTTP is accepted for trusted
 private networks, but it exposes database credentials and SQL in transit. If
 the endpoint redirects HTTP to HTTPS, configure DBX with the final HTTPS URL;
 redirects are not followed because they can change a POST request into a GET.
