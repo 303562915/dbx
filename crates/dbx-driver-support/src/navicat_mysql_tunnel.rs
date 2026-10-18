@@ -34,20 +34,12 @@ impl NavicatMysqlEndpoint {
         database: Option<&str>,
         request_timeout_secs: u64,
     ) -> Result<Self, String> {
-        let mut url = Url::parse(url.trim()).map_err(|error| format!("Invalid Navicat tunnel URL: {error}"))?;
+        let url = Url::parse(url.trim()).map_err(|error| format!("Invalid Navicat tunnel URL: {error}"))?;
         match url.scheme() {
             "https" => {}
-            "http" => {
-                // Navicat PHP tunnels are commonly installed behind an HTTP
-                // to HTTPS redirect.  reqwest follows a 301 by changing the
-                // POST into a GET, which makes the PHP script return its HTML
-                // test page instead of the binary tunnel packet.  Upgrade the
-                // endpoint before sending the first request so the POST body
-                // reaches the tunnel unchanged.
-                url.set_scheme("https")
-                    .map_err(|_| "Failed to upgrade Navicat tunnel URL to HTTPS".to_string())?;
-                log::info!("[navicat-http] upgraded HTTP tunnel URL to HTTPS: {}", url);
-            }
+            "http" => log::warn!(
+                "[navicat-http] using unencrypted HTTP tunnel; database credentials and SQL are exposed in transit"
+            ),
             other => return Err(format!("Unsupported Navicat tunnel URL scheme: {other}")),
         }
         if !url.path().to_ascii_lowercase().ends_with(".php") {
@@ -70,7 +62,10 @@ impl NavicatMysqlEndpoint {
             password: password.to_string(),
             database: database.unwrap_or_default().to_string(),
             request_timeout: Duration::from_secs(request_timeout_secs.clamp(1, 300)),
-            client: Client::new(),
+            client: Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .map_err(|error| format!("Failed to create Navicat HTTP client: {error}"))?,
         })
     }
 
@@ -92,6 +87,8 @@ impl NavicatMysqlEndpoint {
             let response = self.client.post(self.url.clone()).form(&fields).send().await?;
             let status = response.status();
             let mut response_url = response.url().clone();
+            let _ = response_url.set_username("");
+            let _ = response_url.set_password(None);
             response_url.set_query(None);
             response_url.set_fragment(None);
             let content_type = response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|value| value.to_str().ok()).map(str::to_string);
@@ -485,7 +482,25 @@ fn push_lenenc_bytes(output: &mut Vec<u8>, value: &[u8]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_navicat_response, parse_use_database, push_lenenc_bytes};
+    use super::{parse_navicat_response, parse_use_database, push_lenenc_bytes, NavicatMysqlEndpoint};
+
+    #[test]
+    fn accepts_http_and_https_tunnel_urls_without_changing_scheme() {
+        for scheme in ["http", "https"] {
+            let endpoint = NavicatMysqlEndpoint::new(
+                &format!("{scheme}://example.test/ntunnel_mysql.php"),
+                "127.0.0.1",
+                3306,
+                "user",
+                "password",
+                None,
+                10,
+            )
+            .unwrap();
+
+            assert_eq!(endpoint.url.scheme(), scheme);
+        }
+    }
 
     #[test]
     fn parses_navicat_query_response() {
