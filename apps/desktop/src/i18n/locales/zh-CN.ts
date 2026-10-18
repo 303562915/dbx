@@ -1946,7 +1946,7 @@ export default withEnglishFallback({
     httpTunnelProtocol: "隧道协议",
     httpTunnelProtocolDbx: "DBX TCP 脚本",
     httpTunnelProtocolNavicat: "Navicat MySQL HTTP",
-    httpTunnelNavicatHint: "仅支持 MySQL。请填写 Navicat PHP 脚本完整地址（例如 https://example.com/ntunnel_mysql.php），HTTP 和 HTTPS 均可。HTTP 会明文传输数据库凭据和 SQL，仅建议在可信内网使用；若服务器会将 HTTP 重定向到 HTTPS，请直接填写 HTTPS 地址。不能同时启用 MySQL SSL 或其他隧道。",
+    httpTunnelNavicatHint: "仅支持 MySQL。从 Navicat 安装目录获取 ntunnel_mysql.php，上传到 PHP 服务器后填写完整 URL。支持 HTTP/HTTPS；HTTP 会明文传输凭据和 SQL，仅用于可信内网。服务器若会重定向，请直接填写最终 HTTPS 地址。不支持同时启用 MySQL SSL 或其他隧道。",
     httpTunnelNavicatScriptHelp: "查看官方 PHP 脚本获取方式",
     httpTunnelToken: "隧道 Token",
     httpTunnelNavicatNoToken: "Navicat 协议不使用 Token",

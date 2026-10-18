@@ -2009,7 +2009,7 @@ export default {
     httpTunnelProtocolDbx: "DBX TCP script",
     httpTunnelProtocolNavicat: "Navicat MySQL HTTP",
     httpTunnelNavicatHint:
-      "MySQL only. Enter the full URL of the Navicat PHP script (for example, https://example.com/ntunnel_mysql.php). HTTP and HTTPS are accepted. HTTP sends database credentials and SQL in cleartext; use it only on a trusted private network. If the server redirects HTTP to HTTPS, enter the HTTPS URL directly. MySQL SSL and other tunnel layers are not supported.",
+      "MySQL only. Get ntunnel_mysql.php from your Navicat installation, upload it to a PHP server, and enter its full URL. HTTP and HTTPS are supported; HTTP sends credentials and SQL in cleartext, so use it only on a trusted private network. If the server redirects, enter the final HTTPS URL. MySQL SSL and other tunnel layers are not supported.",
     httpTunnelNavicatScriptHelp: "Where to get the official PHP script",
     httpTunnelToken: "Tunnel Token",
     httpTunnelNavicatNoToken: "Not used by the Navicat protocol",
