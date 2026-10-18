@@ -482,7 +482,11 @@ fn push_lenenc_bytes(output: &mut Vec<u8>, value: &[u8]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_navicat_response, parse_use_database, push_lenenc_bytes, NavicatMysqlEndpoint};
+    use super::{
+        parse_navicat_response, parse_use_database, push_lenenc_bytes, read_packet, write_packet, NavicatMysqlEndpoint,
+        CLIENT_PROTOCOL_41, CLIENT_SECURE_CONNECTION,
+    };
+    use tokio::net::{TcpListener, TcpStream};
 
     #[test]
     fn accepts_http_and_https_tunnel_urls_without_changing_scheme() {
@@ -529,5 +533,69 @@ mod tests {
     fn parses_use_database_statement() {
         assert_eq!(parse_use_database("USE `other``db`;"), Some("other`db".to_string()));
         assert_eq!(parse_use_database("SELECT 1"), None);
+    }
+
+    #[tokio::test]
+    async fn live_navicat_http_tunnel_query_use_ping_and_error_paths() {
+        let (Some(url), Some(username), Some(password)) = (
+            std::env::var("DBX_NAVICAT_TEST_URL").ok(),
+            std::env::var("DBX_NAVICAT_TEST_USERNAME").ok(),
+            std::env::var("DBX_NAVICAT_TEST_PASSWORD").ok(),
+        ) else {
+            eprintln!("skipping live Navicat tunnel test: DBX_NAVICAT_TEST_* variables are not all set");
+            return;
+        };
+
+        let endpoint = NavicatMysqlEndpoint::new(&url, "localhost", 3306, &username, &password, None, 20).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(super::serve(listener, endpoint));
+        let mut client = TcpStream::connect(address).await.unwrap();
+
+        let (_, greeting) = read_packet(&mut client).await.unwrap();
+        assert_eq!(greeting.first(), Some(&10), "expected MySQL protocol 10 greeting");
+
+        let mut handshake = Vec::new();
+        handshake.extend_from_slice(&(CLIENT_PROTOCOL_41 | CLIENT_SECURE_CONNECTION).to_le_bytes());
+        handshake.extend_from_slice(&0x0100_0000u32.to_le_bytes());
+        handshake.push(45);
+        handshake.extend_from_slice(&[0; 23]);
+        handshake.extend_from_slice(b"dbx-live-test\0");
+        handshake.push(0);
+        write_packet(&mut client, 1, &handshake).await.unwrap();
+        let (_, auth_result) = read_packet(&mut client).await.unwrap();
+        assert_eq!(auth_result.first(), Some(&0), "expected local proxy authentication OK");
+
+        let use_result = send_test_command(&mut client, 0x03, b"USE information_schema").await;
+        assert_eq!(use_result.first(), Some(&0), "USE should return an OK packet");
+
+        let ping_result = send_test_command(&mut client, 0x0e, b"").await;
+        assert_eq!(ping_result.first(), Some(&0), "COM_PING should return an OK packet");
+
+        let _ = send_test_command(&mut client, 0x03, b"SELECT DATABASE()").await;
+        let (_, column_definition) = read_packet(&mut client).await.unwrap();
+        assert!(!column_definition.is_empty());
+        let (_, column_terminator) = read_packet(&mut client).await.unwrap();
+        assert_eq!(column_terminator.first(), Some(&0xfe));
+        let (_, row) = read_packet(&mut client).await.unwrap();
+        assert_eq!(row.first().copied(), Some("information_schema".len() as u8));
+        assert_eq!(&row[1..], b"information_schema", "USE must select the database for the following HTTP query");
+        let (_, row_terminator) = read_packet(&mut client).await.unwrap();
+        assert_eq!(row_terminator.first(), Some(&0xfe));
+
+        let sql_error = send_test_command(&mut client, 0x03, b"SELECT FROM dbx_live_test").await;
+        assert_eq!(sql_error.first(), Some(&0xff), "invalid SQL should return an ERR packet");
+        assert_eq!(u16::from_le_bytes(sql_error[1..3].try_into().unwrap()), 1105);
+        assert!(String::from_utf8_lossy(&sql_error[9..]).contains("1064"), "the Navicat server error should be preserved");
+
+        write_packet(&mut client, 0, &[0x01]).await.unwrap();
+        server.abort();
+    }
+
+    async fn send_test_command(client: &mut TcpStream, command: u8, payload: &[u8]) -> Vec<u8> {
+        let mut packet = vec![command];
+        packet.extend_from_slice(payload);
+        write_packet(client, 0, &packet).await.unwrap();
+        read_packet(client).await.unwrap().1
     }
 }
