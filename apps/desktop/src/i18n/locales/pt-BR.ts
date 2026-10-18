@@ -1825,6 +1825,7 @@ export default withEnglishFallback({
     httpTunnelProtocolNavicat: "Navicat MySQL HTTP",
     httpTunnelNavicatHint: "Somente MySQL é suportado; endereços HTTP/HTTPS são suportados, recomenda-se usar HTTPS. Não é possível habilitar MySQL SSL ou outro túnel ao mesmo tempo.",
     httpTunnelNavicatNoToken: "O protocolo Navicat não usa Token",
+    httpTunnelNavicatScriptHelp: "Ver como obter o script PHP oficial",
   },
   editor: {
     duckdbDraining: "A consulta anterior do DuckDB ainda está sendo interrompida. Tente novamente em breve.",

@@ -1826,6 +1826,7 @@ export default withEnglishFallback({
     httpTunnelProtocolNavicat: "Navicat MySQL HTTP",
     httpTunnelNavicatHint: "僅支援 MySQL；支援 HTTP/HTTPS 位址，建議使用 HTTPS。不能同時啟用 MySQL SSL 或其他隧道。",
     httpTunnelNavicatNoToken: "Navicat 通訊協定不使用 Token",
+    httpTunnelNavicatScriptHelp: "查看官方 PHP 腳本取得方式",
   },
   editor: {
     duckdbDraining: "上一筆 DuckDB 查詢仍在停止，請稍後重試。",
