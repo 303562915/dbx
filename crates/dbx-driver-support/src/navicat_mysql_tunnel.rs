@@ -82,7 +82,14 @@ impl NavicatMysqlEndpoint {
             ("encodeBase64", "1".to_string()),
             ("q[]", encoded_query),
         ];
-        log::debug!("[navicat-http] POST tunnel request target={}:{} db={} sql_bytes={} timeout_secs={}", self.host, self.port, if database.is_empty() { "<none>" } else { "<set>" }, sql.len(), self.request_timeout.as_secs());
+        log::debug!(
+            "[navicat-http] POST tunnel request target={}:{} db={} sql_bytes={} timeout_secs={}",
+            self.host,
+            self.port,
+            if database.is_empty() { "<none>" } else { "<set>" },
+            sql.len(),
+            self.request_timeout.as_secs()
+        );
         let (status, response_url, content_type, body) = timeout(self.request_timeout, async {
             let response = self.client.post(self.url.clone()).form(&fields).send().await?;
             let status = response.status();
@@ -91,25 +98,49 @@ impl NavicatMysqlEndpoint {
             let _ = response_url.set_password(None);
             response_url.set_query(None);
             response_url.set_fragment(None);
-            let content_type = response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|value| value.to_str().ok()).map(str::to_string);
+            let content_type = response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
             let body = response.bytes().await?;
             Ok::<_, reqwest::Error>((status, response_url, content_type, body))
         })
         .await
         .map_err(|_| {
-            log::warn!("[navicat-http] request timed out after {:?} target={}:{}", started.elapsed(), self.host, self.port);
+            log::warn!(
+                "[navicat-http] request timed out after {:?} target={}:{}",
+                started.elapsed(),
+                self.host,
+                self.port
+            );
             "Navicat HTTP tunnel request timed out".to_string()
         })?
         .map_err(|error| {
-            log::warn!("[navicat-http] request transport error after {:?} target={}:{}: {error}", started.elapsed(), self.host, self.port);
+            log::warn!(
+                "[navicat-http] request transport error after {:?} target={}:{}: {error}",
+                started.elapsed(),
+                self.host,
+                self.port
+            );
             format!("Navicat HTTP tunnel request failed: {error}")
         })?;
-        log::debug!("[navicat-http] response status={} content_type={:?} final_url={} bytes={} elapsed={:?}", status, content_type, response_url, body.len(), started.elapsed());
+        log::debug!(
+            "[navicat-http] response status={} content_type={:?} final_url={} bytes={} elapsed={:?}",
+            status,
+            content_type,
+            response_url,
+            body.len(),
+            started.elapsed()
+        );
         if !status.is_success() {
             let text = String::from_utf8_lossy(&body);
             return Err(format!("Navicat HTTP tunnel returned HTTP {status}: {}", text.trim()));
         }
-        if body.len() < 16 || u32::from_be_bytes(body[0..4].try_into().unwrap()) != 1111 || u16::from_be_bytes(body[4..6].try_into().unwrap()) != 204 {
+        if body.len() < 16
+            || u32::from_be_bytes(body[0..4].try_into().unwrap()) != 1111
+            || u16::from_be_bytes(body[4..6].try_into().unwrap()) != 204
+        {
             let header_bytes = body.iter().take(16).map(|byte| format!("{byte:02x}")).collect::<Vec<_>>().join(" ");
             let preview = String::from_utf8_lossy(body.get(..body.len().min(120)).unwrap_or_default())
                 .chars()
@@ -169,7 +200,11 @@ async fn serve_client(mut stream: &mut TcpStream, endpoint: Arc<NavicatMysqlEndp
         log::warn!("[navicat-mysql] failed waiting for client handshake peer={peer:?}: {error}");
         error
     })?;
-    log::debug!("[navicat-mysql] received client handshake peer={peer:?} sequence={sequence} bytes={} capabilities=0x{:08x}", handshake.len(), handshake.get(..4).and_then(|bytes| <[u8; 4]>::try_from(bytes).ok()).map(u32::from_le_bytes).unwrap_or(0));
+    log::debug!(
+        "[navicat-mysql] received client handshake peer={peer:?} sequence={sequence} bytes={} capabilities=0x{:08x}",
+        handshake.len(),
+        handshake.get(..4).and_then(|bytes| <[u8; 4]>::try_from(bytes).ok()).map(u32::from_le_bytes).unwrap_or(0)
+    );
     if handshake.len() < 32 {
         return Err("Invalid MySQL handshake response".to_string());
     }
@@ -214,10 +249,23 @@ async fn serve_client(mut stream: &mut TcpStream, endpoint: Arc<NavicatMysqlEndp
                 }
             }
             0x16 => {
-                send_mysql_error(&mut stream, sequence.wrapping_add(1), 1295, "Prepared statements are not supported by Navicat HTTP tunnels")
-                    .await?
+                send_mysql_error(
+                    &mut stream,
+                    sequence.wrapping_add(1),
+                    1295,
+                    "Prepared statements are not supported by Navicat HTTP tunnels",
+                )
+                .await?
             }
-            _ => send_mysql_error(&mut stream, sequence.wrapping_add(1), 1047, "Unsupported command for Navicat HTTP tunnel").await?,
+            _ => {
+                send_mysql_error(
+                    &mut stream,
+                    sequence.wrapping_add(1),
+                    1047,
+                    "Unsupported command for Navicat HTTP tunnel",
+                )
+                .await?
+            }
         }
     }
 }
@@ -586,7 +634,10 @@ mod tests {
         let sql_error = send_test_command(&mut client, 0x03, b"SELECT FROM dbx_live_test").await;
         assert_eq!(sql_error.first(), Some(&0xff), "invalid SQL should return an ERR packet");
         assert_eq!(u16::from_le_bytes(sql_error[1..3].try_into().unwrap()), 1105);
-        assert!(String::from_utf8_lossy(&sql_error[9..]).contains("1064"), "the Navicat server error should be preserved");
+        assert!(
+            String::from_utf8_lossy(&sql_error[9..]).contains("1064"),
+            "the Navicat server error should be preserved"
+        );
 
         write_packet(&mut client, 0, &[0x01]).await.unwrap();
         server.abort();
