@@ -1515,6 +1515,18 @@ export interface QueryResult {
   has_more?: boolean;
   /** Frontend-only SQL page lookahead, independent of the driver's cursor has_more. */
   page_has_more?: boolean;
+  /** Frontend-only page state, owned by the result rather than the active tab. */
+  sqlPage?: {
+    sql: string;
+    executedSql: string;
+    limit: number;
+    offset: number;
+    executedLimit: number;
+    executedOffset: number;
+    probe: boolean;
+    countSql?: string;
+    exactQueryRowBound?: number;
+  };
   /** For Elasticsearch REST search results parsed into a _source table,
    *  this carries the raw HTTP response body so the UI can toggle between
    *  the tabular view and the original JSON. */
@@ -2077,6 +2089,8 @@ export interface TabUiState {
   /** Redis query results default to grid; a per-tab override selects command-line output. */
   redisResultViewMode?: RedisResultViewMode;
   resultPaneOpen?: boolean;
+  /** Tracks whether the active output view was auto-switched to "messages" by live server output during execution. */
+  autoSwitchedToMessagesDuringExecution?: boolean;
   /** Small JSON-compatible snapshots owned by special-page components. */
   page?: Record<string, TabPageUiState>;
 }
@@ -2308,6 +2322,7 @@ export interface QueryTab {
     commandId?: string;
     pluginId: string;
     contributionId: string;
+    defaultTitle?: string;
     context?: Record<string, unknown>;
   };
   pluginFilesystem?: {
