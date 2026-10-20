@@ -13,13 +13,29 @@ on:
 permissions:
   contents: read
 
+env:
+  RUSTFLAGS: -C debuginfo=line-tables-only
+  CARGO_INCREMENTAL: "0"
+  CARGO_TARGET_DIR: target
+  RUSTUP_TOOLCHAIN: 1.97.1
+  RUST_FEATURE_MODE: fast
+
 jobs:
+  rust-fmt:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/http-tunnel-cgi-fastcgi
+      - uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: rustfmt
+      - name: Cargo fmt check
+        run: cargo fmt --check
+
   rust-clippy:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
-    env:
-      CARGO_INCREMENTAL: "0"
-      RUST_FEATURE_MODE: fast
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,13 +44,42 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libsecret-1-dev
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 22
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@1.97.1
+          node-version: 22.23.3
+      - uses: dtolnay/rust-toolchain@1.97.1
         with:
-          components: clippy, rustfmt
+          components: clippy
       - name: Run Rust Clippy
         run: node .github/scripts/ci-rust.mjs clippy workspace "$RUST_FEATURE_MODE"
+
+  rust-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [foundation, drivers, application]
+    env:
+      RUST_MIN_STACK: 8388608
+      RUST_TEST_GROUP: ${{ matrix.group }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/http-tunnel-cgi-fastcgi
+      - name: Install system dependencies
+        if: matrix.group != 'foundation'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libsecret-1-dev
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.3
+      - uses: dtolnay/rust-toolchain@1.97.1
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - name: Run Rust tests
+        run: node .github/scripts/ci-rust.mjs test "$RUST_TEST_GROUP" "$RUST_FEATURE_MODE"
+      - name: Run Rust doc tests
+        run: node .github/scripts/ci-rust.mjs doctest "$RUST_TEST_GROUP" "$RUST_FEATURE_MODE"
