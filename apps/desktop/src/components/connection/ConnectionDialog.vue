@@ -6612,7 +6612,6 @@ function updateSelectedHttpTunnelProtocol(value: unknown) {
   if (layer.protocol === "navicat_mysql" && layer.url.trim()) {
     try {
       const url = new URL(layer.url.trim());
-      if (url.protocol === "http:") url.protocol = "https:";
       if (url.pathname.endsWith("/")) {
         url.pathname += "ntunnel_mysql.php";
         layer.url = url.toString();

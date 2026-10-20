@@ -142,7 +142,6 @@ function updateHttpTunnelProtocol(value: unknown) {
   if (profile.protocol === "navicat_mysql" && profile.url.trim()) {
     try {
       const url = new URL(profile.url.trim());
-      if (url.protocol === "http:") url.protocol = "https:";
       if (url.pathname.endsWith("/")) {
         url.pathname += "ntunnel_mysql.php";
         profile.url = url.toString();

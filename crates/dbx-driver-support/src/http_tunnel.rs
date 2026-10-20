@@ -142,11 +142,13 @@ impl HttpTunnelManager {
 fn redacted_tunnel_url(raw: &str) -> String {
     reqwest::Url::parse(raw)
         .map(|mut url| {
+            let _ = url.set_username("");
+            let _ = url.set_password(None);
             url.set_query(None);
             url.set_fragment(None);
             url.to_string()
         })
-        .unwrap_or_else(|_| raw.trim().to_string())
+        .unwrap_or_else(|_| "<invalid-url>".to_string())
 }
 
 struct HttpTunnelEndpoint {
@@ -365,12 +367,21 @@ fn effective_connect_timeout_secs(value: u64) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{script_url, validate_script_url, HttpTunnelManager};
+    use super::{redacted_tunnel_url, script_url, validate_script_url, HttpTunnelManager};
     use std::sync::Arc;
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
     use tokio::net::{TcpListener, TcpStream};
     use tokio::sync::{Mutex, Notify};
     use tokio::time::{timeout, Duration};
+
+    #[test]
+    fn tunnel_log_url_removes_credentials_and_does_not_echo_invalid_input() {
+        assert_eq!(
+            redacted_tunnel_url("https://alice:secret@example.test/tunnel.php?token=secret#fragment"),
+            "https://example.test/tunnel.php"
+        );
+        assert_eq!(redacted_tunnel_url("https://alice:secret@%/"), "<invalid-url>");
+    }
 
     #[test]
     fn script_url_preserves_existing_query_and_appends_action() {
