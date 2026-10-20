@@ -1,0 +1,42 @@
+name: Fork Rust CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch or commit to check
+        required: true
+        default: fix/http-tunnel-cgi-fastcgi
+
+permissions:
+  contents: read
+
+jobs:
+  rust-fmt-clippy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      CARGO_INCREMENTAL: "0"
+      RUST_FEATURE_MODE: fast
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev libsecret-1-dev
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@1.97.1
+        with:
+          components: clippy, rustfmt
+
+      - name: Run Rust Clippy
+        run: node .github/scripts/ci-rust.mjs clippy workspace "$RUST_FEATURE_MODE"
