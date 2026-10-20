@@ -282,9 +282,11 @@ fn validate_stateless_query(sql: &str) -> Result<(), String> {
                 || (word_is(first, "START") && word_is(statement.get(1), "TRANSACTION"))
                 || (word_is(first, "RELEASE") && word_is(statement.get(1), "SAVEPOINT"))
                 || (word_is(first, "SET")
-                    && statement
-                        .iter()
-                        .any(|token| word_is(Some(token), "AUTOCOMMIT") || word_is(Some(token), "TRANSACTION")));
+                    && statement.iter().any(|token| {
+                        word_is(Some(token), "AUTOCOMMIT")
+                            || word_is(Some(token), "@@AUTOCOMMIT")
+                            || word_is(Some(token), "TRANSACTION")
+                    }));
         if transaction {
             return Err(
                 "Transactions and autocommit settings are not supported by Navicat HTTP tunnels: each request uses a separate MySQL session"
@@ -638,6 +640,8 @@ mod tests {
             "RELEASE SAVEPOINT s",
             "XA START 'x'",
             "SET autocommit = 0",
+            "SET @@autocommit = 0",
+            "SET @@`autocommit` = 0",
             "SET @@session.autocommit = OFF",
             "SET SESSION `autocommit` = 0",
             "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ",
@@ -676,7 +680,7 @@ mod tests {
         write_packet(&mut client, 1, &handshake).await.unwrap();
         assert_eq!(read_packet(&mut client).await.unwrap().1[0], 0);
 
-        for sql in ["START TRANSACTION", "BEGIN", "ROLLBACK", "COMMIT", "SET autocommit=0"] {
+        for sql in ["START TRANSACTION", "BEGIN", "ROLLBACK", "COMMIT", "SET autocommit=0", "SET @@autocommit=0"] {
             let response = send_test_command(&mut client, 0x03, sql.as_bytes()).await;
             assert_eq!(response[0], 0xff, "{sql}");
             assert_eq!(u16::from_le_bytes(response[1..3].try_into().unwrap()), 1235, "{sql}");
