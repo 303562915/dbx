@@ -185,7 +185,7 @@ pub async fn serve(listener: TcpListener, endpoint: NavicatMysqlEndpoint) {
     }
 }
 
-async fn serve_client(mut stream: &mut TcpStream, endpoint: Arc<NavicatMysqlEndpoint>) -> Result<(), String> {
+async fn serve_client(stream: &mut TcpStream, endpoint: Arc<NavicatMysqlEndpoint>) -> Result<(), String> {
     let peer = stream.peer_addr().ok();
     let seed_a = uuid::Uuid::new_v4();
     let seed_b = uuid::Uuid::new_v4();
@@ -193,10 +193,10 @@ async fn serve_client(mut stream: &mut TcpStream, endpoint: Arc<NavicatMysqlEndp
     auth_seed[..16].copy_from_slice(seed_a.as_bytes());
     auth_seed[16..].copy_from_slice(&seed_b.as_bytes()[..4]);
     let greeting = mysql_handshake_greeting(&auth_seed);
-    write_packet(&mut stream, 0, &greeting).await?;
+    write_packet(stream, 0, &greeting).await?;
     log::debug!("[navicat-mysql] sent protocol greeting peer={peer:?} bytes={}", greeting.len());
 
-    let (sequence, handshake) = read_packet(&mut stream).await.map_err(|error| {
+    let (sequence, handshake) = read_packet(stream).await.map_err(|error| {
         log::warn!("[navicat-mysql] failed waiting for client handshake peer={peer:?}: {error}");
         error
     })?;
@@ -210,14 +210,14 @@ async fn serve_client(mut stream: &mut TcpStream, endpoint: Arc<NavicatMysqlEndp
     }
     let client_capabilities = u32::from_le_bytes(handshake[0..4].try_into().unwrap());
     if client_capabilities & CLIENT_PROTOCOL_41 == 0 {
-        return send_mysql_error(&mut stream, sequence.wrapping_add(1), 1043, "MySQL protocol 4.1 is required").await;
+        return send_mysql_error(stream, sequence.wrapping_add(1), 1043, "MySQL protocol 4.1 is required").await;
     }
-    write_packet(&mut stream, sequence.wrapping_add(1), &mysql_ok_packet(0, 0, "")).await?;
+    write_packet(stream, sequence.wrapping_add(1), &mysql_ok_packet(0, 0, "")).await?;
     log::debug!("[navicat-mysql] authenticated local client peer={peer:?}");
 
     let mut database = endpoint.database.clone();
     loop {
-        let (sequence, packet) = match read_packet(&mut stream).await {
+        let (sequence, packet) = match read_packet(stream).await {
             Ok(packet) => packet,
             Err(error) if error == "MySQL client disconnected" => return Ok(()),
             Err(error) => {
@@ -231,26 +231,26 @@ async fn serve_client(mut stream: &mut TcpStream, endpoint: Arc<NavicatMysqlEndp
         log::debug!("[navicat-mysql] received command peer={peer:?} command=0x{command:02x} sequence={sequence} payload_bytes={}", payload.len());
         match command {
             0x01 => return Ok(()),
-            0x0e => write_packet(&mut stream, sequence.wrapping_add(1), &mysql_ok_packet(0, 0, "")).await?,
+            0x0e => write_packet(stream, sequence.wrapping_add(1), &mysql_ok_packet(0, 0, "")).await?,
             0x02 => {
                 database = String::from_utf8_lossy(payload).to_string();
-                write_packet(&mut stream, sequence.wrapping_add(1), &mysql_ok_packet(0, 0, "")).await?;
+                write_packet(stream, sequence.wrapping_add(1), &mysql_ok_packet(0, 0, "")).await?;
             }
             0x03 => {
                 let sql = String::from_utf8_lossy(payload).to_string();
                 if let Some(next_database) = parse_use_database(&sql) {
                     database = next_database;
-                    write_packet(&mut stream, sequence.wrapping_add(1), &mysql_ok_packet(0, 0, "")).await?;
+                    write_packet(stream, sequence.wrapping_add(1), &mysql_ok_packet(0, 0, "")).await?;
                     continue;
                 }
                 match endpoint.query(&database, &sql).await.and_then(|body| parse_navicat_response(&body)) {
-                    Ok(result) => write_query_result(&mut stream, result).await?,
-                    Err(error) => send_mysql_error(&mut stream, sequence.wrapping_add(1), 1105, &error).await?,
+                    Ok(result) => write_query_result(stream, result).await?,
+                    Err(error) => send_mysql_error(stream, sequence.wrapping_add(1), 1105, &error).await?,
                 }
             }
             0x16 => {
                 send_mysql_error(
-                    &mut stream,
+                    stream,
                     sequence.wrapping_add(1),
                     1295,
                     "Prepared statements are not supported by Navicat HTTP tunnels",
@@ -258,13 +258,8 @@ async fn serve_client(mut stream: &mut TcpStream, endpoint: Arc<NavicatMysqlEndp
                 .await?
             }
             _ => {
-                send_mysql_error(
-                    &mut stream,
-                    sequence.wrapping_add(1),
-                    1047,
-                    "Unsupported command for Navicat HTTP tunnel",
-                )
-                .await?
+                send_mysql_error(stream, sequence.wrapping_add(1), 1047, "Unsupported command for Navicat HTTP tunnel")
+                    .await?
             }
         }
     }
