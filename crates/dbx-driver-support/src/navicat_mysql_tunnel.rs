@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinSet;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 const CLIENT_PROTOCOL_41: u32 = 0x0000_0200;
 const CLIENT_SECURE_CONNECTION: u32 = 0x0000_8000;
@@ -228,7 +228,10 @@ async fn serve_client(stream: &mut TcpStream, endpoint: Arc<NavicatMysqlEndpoint
         let Some((&command, payload)) = packet.split_first() else {
             continue;
         };
-        log::debug!("[navicat-mysql] received command peer={peer:?} command=0x{command:02x} sequence={sequence} payload_bytes={}", payload.len());
+        log::debug!(
+            "[navicat-mysql] received command peer={peer:?} command=0x{command:02x} sequence={sequence} payload_bytes={}",
+            payload.len()
+        );
         match command {
             0x01 => return Ok(()),
             0x0e => write_packet(stream, sequence.wrapping_add(1), &mysql_ok_packet(0, 0, "")).await?,
@@ -477,7 +480,7 @@ async fn read_packet(stream: &mut TcpStream) -> Result<(u8, Vec<u8>), String> {
     match stream.read_exact(&mut header).await {
         Ok(_) => {}
         Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => {
-            return Err("MySQL client disconnected".to_string())
+            return Err("MySQL client disconnected".to_string());
         }
         Err(error) => return Err(format!("Failed to read MySQL packet header: {error}")),
     }
@@ -526,8 +529,8 @@ fn push_lenenc_bytes(output: &mut Vec<u8>, value: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_navicat_response, parse_use_database, push_lenenc_bytes, read_packet, write_packet,
-        NavicatMysqlEndpoint, CLIENT_PROTOCOL_41, CLIENT_SECURE_CONNECTION,
+        CLIENT_PROTOCOL_41, CLIENT_SECURE_CONNECTION, NavicatMysqlEndpoint, parse_navicat_response, parse_use_database,
+        push_lenenc_bytes, read_packet, write_packet,
     };
     use tokio::net::{TcpListener, TcpStream};
 
