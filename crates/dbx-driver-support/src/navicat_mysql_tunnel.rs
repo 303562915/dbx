@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinSet;
-use tokio::time::{Duration, timeout};
+use tokio::time::{timeout, Duration};
 
 const CLIENT_PROTOCOL_41: u32 = 0x0000_0200;
 const CLIENT_SECURE_CONNECTION: u32 = 0x0000_8000;
@@ -529,8 +529,8 @@ fn push_lenenc_bytes(output: &mut Vec<u8>, value: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::{
-        CLIENT_PROTOCOL_41, CLIENT_SECURE_CONNECTION, NavicatMysqlEndpoint, parse_navicat_response, parse_use_database,
-        push_lenenc_bytes, read_packet, write_packet,
+        parse_navicat_response, parse_use_database, push_lenenc_bytes, read_packet, write_packet, NavicatMysqlEndpoint,
+        CLIENT_PROTOCOL_41, CLIENT_SECURE_CONNECTION,
     };
     use tokio::net::{TcpListener, TcpStream};
 
