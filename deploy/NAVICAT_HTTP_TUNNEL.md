@@ -23,6 +23,7 @@ can change a POST request into a GET.
 
 This protocol supports regular queries, `USE`, ping, and disconnect. MySQL TLS
 and prepared statements are not supported by the Navicat HTTP tunnel protocol.
-Each HTTP request opens a separate MySQL session. Transactions (including manual
-transactions and consistent backup snapshots), savepoints, and autocommit
-settings are rejected before any SQL is sent to the PHP host.
+Each HTTP request opens a separate MySQL session, so transaction state,
+savepoints, and autocommit settings do not persist between requests. Backups
+that rely on a consistent transaction snapshot are therefore not guaranteed to
+represent one point in time when using this tunnel.

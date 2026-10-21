@@ -1,7 +1,5 @@
 use base64::Engine;
 use reqwest::{Client, Url};
-use sqlparser::dialect::MySqlDialect;
-use sqlparser::tokenizer::{Token, Tokenizer, Whitespace};
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -240,10 +238,6 @@ async fn serve_client(stream: &mut TcpStream, endpoint: Arc<NavicatMysqlEndpoint
             }
             0x03 => {
                 let sql = String::from_utf8_lossy(payload).to_string();
-                if let Err(error) = validate_stateless_query(&sql) {
-                    send_mysql_error(stream, sequence.wrapping_add(1), 1235, &error).await?;
-                    continue;
-                }
                 if let Some(next_database) = parse_use_database(&sql) {
                     database = next_database;
                     write_packet(stream, sequence.wrapping_add(1), &mysql_ok_packet(0, 0, "")).await?;
@@ -269,51 +263,6 @@ async fn serve_client(stream: &mut TcpStream, endpoint: Arc<NavicatMysqlEndpoint
             }
         }
     }
-}
-
-fn validate_stateless_query(sql: &str) -> Result<(), String> {
-    let mut tokens = Vec::new();
-    stateless_query_tokens(sql, &mut tokens)?;
-    for statement in tokens.split(|token| *token == Token::SemiColon) {
-        let word_is = |token: Option<&Token>, expected: &str| matches!(token, Some(Token::Word(word)) if word.value.eq_ignore_ascii_case(expected));
-        let first = statement.first();
-        let transaction =
-            ["BEGIN", "COMMIT", "ROLLBACK", "SAVEPOINT", "XA"].iter().any(|keyword| word_is(first, keyword))
-                || (word_is(first, "START") && word_is(statement.get(1), "TRANSACTION"))
-                || (word_is(first, "RELEASE") && word_is(statement.get(1), "SAVEPOINT"))
-                || (word_is(first, "SET")
-                    && statement.iter().any(|token| {
-                        word_is(Some(token), "AUTOCOMMIT")
-                            || word_is(Some(token), "@@AUTOCOMMIT")
-                            || word_is(Some(token), "TRANSACTION")
-                    }));
-        if transaction {
-            return Err(
-                "Transactions and autocommit settings are not supported by Navicat HTTP tunnels: each request uses a separate MySQL session"
-                    .to_string(),
-            );
-        }
-    }
-    Ok(())
-}
-
-fn stateless_query_tokens(sql: &str, output: &mut Vec<Token>) -> Result<(), String> {
-    for token in Tokenizer::new(&MySqlDialect {}, sql)
-        .tokenize()
-        .map_err(|error| format!("Cannot validate Navicat HTTP tunnel query: {error}"))?
-    {
-        match token {
-            Token::Whitespace(Whitespace::MultiLineComment(comment)) => {
-                // MySQL executes versioned comments; inspect their SQL as well.
-                if let Some(body) = comment.strip_prefix('!').or_else(|| comment.strip_prefix("M!")) {
-                    stateless_query_tokens(body.trim_start_matches(|ch: char| ch.is_ascii_digit()), output)?;
-                }
-            }
-            Token::Whitespace(_) | Token::EOF => {}
-            token => output.push(token),
-        }
-    }
-    Ok(())
 }
 
 fn mysql_handshake_greeting(auth_seed: &[u8; 20]) -> Vec<u8> {
@@ -577,8 +526,8 @@ fn push_lenenc_bytes(output: &mut Vec<u8>, value: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::{
-        parse_navicat_response, parse_use_database, push_lenenc_bytes, read_packet, validate_stateless_query,
-        write_packet, NavicatMysqlEndpoint, CLIENT_PROTOCOL_41, CLIENT_SECURE_CONNECTION,
+        parse_navicat_response, parse_use_database, push_lenenc_bytes, read_packet, write_packet,
+        NavicatMysqlEndpoint, CLIENT_PROTOCOL_41, CLIENT_SECURE_CONNECTION,
     };
     use tokio::net::{TcpListener, TcpStream};
 
@@ -627,68 +576,6 @@ mod tests {
     fn parses_use_database_statement() {
         assert_eq!(parse_use_database("USE `other``db`;"), Some("other`db".to_string()));
         assert_eq!(parse_use_database("SELECT 1"), None);
-    }
-
-    #[test]
-    fn rejects_transaction_control_including_comments_and_autocommit() {
-        for sql in [
-            "BEGIN",
-            "START /* comment */ TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY",
-            "COMMIT",
-            "ROLLBACK TO SAVEPOINT s",
-            "SAVEPOINT s",
-            "RELEASE SAVEPOINT s",
-            "XA START 'x'",
-            "SET autocommit = 0",
-            "SET @@autocommit = 0",
-            "SET @@`autocommit` = 0",
-            "SET @@session.autocommit = OFF",
-            "SET SESSION `autocommit` = 0",
-            "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ",
-            "/*!40101 SET AUTOCOMMIT=0 */",
-            "/*M! SET autocommit=0 */",
-            "START /*!40100 TRANSACTION */",
-            "SELECT 1; BEGIN",
-        ] {
-            assert!(validate_stateless_query(sql).is_err(), "{sql}");
-        }
-        for sql in [
-            "SELECT 'BEGIN; SET autocommit=0'",
-            "SELECT `autocommit` FROM t",
-            "/* BEGIN */ SELECT 1",
-            "SET NAMES utf8mb4",
-            "SET SESSION group_concat_max_len = 1048576",
-            "SET @note = 'autocommit'",
-            "USE information_schema",
-        ] {
-            assert!(validate_stateless_query(sql).is_ok(), "{sql}");
-        }
-    }
-
-    #[tokio::test]
-    async fn transaction_commands_fail_before_any_http_request() {
-        let http_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let url = format!("http://{}/ntunnel_mysql.php", http_listener.local_addr().unwrap());
-        let endpoint = NavicatMysqlEndpoint::new(&url, "localhost", 3306, "user", "password", None, 1).unwrap();
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let mut client = TcpStream::connect(listener.local_addr().unwrap()).await.unwrap();
-        let server = tokio::spawn(super::serve(listener, endpoint));
-
-        read_packet(&mut client).await.unwrap();
-        let mut handshake = [0; 32];
-        handshake[..4].copy_from_slice(&CLIENT_PROTOCOL_41.to_le_bytes());
-        write_packet(&mut client, 1, &handshake).await.unwrap();
-        assert_eq!(read_packet(&mut client).await.unwrap().1[0], 0);
-
-        for sql in ["START TRANSACTION", "BEGIN", "ROLLBACK", "COMMIT", "SET autocommit=0", "SET @@autocommit=0"] {
-            let response = send_test_command(&mut client, 0x03, sql.as_bytes()).await;
-            assert_eq!(response[0], 0xff, "{sql}");
-            assert_eq!(u16::from_le_bytes(response[1..3].try_into().unwrap()), 1235, "{sql}");
-            assert!(String::from_utf8_lossy(&response[9..]).contains("separate MySQL session"));
-        }
-        assert!(tokio::time::timeout(std::time::Duration::from_millis(50), http_listener.accept()).await.is_err());
-        assert_eq!(send_test_command(&mut client, 0x0e, b"").await[0], 0);
-        server.abort();
     }
 
     #[tokio::test]
